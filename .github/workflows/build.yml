@@ -99,12 +99,15 @@ jobs:
                   --detach-sign --armor "$pkg"
               done
               repo-add charly.db.tar.zst charly-*.pkg.tar.zst
+              # pacman requests the db signature under the uncompressed name
+              # (charly.db.sig), not the .tar.zst name — sign the symlink
+              # repo-add created so both names carry a signature.
               gpg --batch --yes --pinentry-mode loopback \
                 --passphrase-file <(echo "$GPG_PASSPHRASE") \
-                --detach-sign charly.db.tar.zst
+                --detach-sign charly.db
               gpg --batch --yes --pinentry-mode loopback \
                 --passphrase-file <(echo "$GPG_PASSPHRASE") \
-                --detach-sign charly.files.tar.zst
+                --detach-sign charly.files
             done
           '
 

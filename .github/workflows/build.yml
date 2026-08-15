@@ -140,6 +140,25 @@ jobs:
             test "$(charly version)" = "$VERSION" || { echo "version mismatch: $(charly version) != $VERSION"; exit 1; }
             cd /tmp && charly doctor
           '
+          # The minimal variant ships only the 3 core plugins — assert the
+          # package installs and the plugin set is exactly that, so a variant
+          # whose plugin list drifts from the release fails loudly here.
+          docker run --rm -e VERSION="$VERSION" -v "${{ github.workspace }}:/ws:ro" archlinux:latest bash -c '
+            set -e
+            pacman-key --init
+            pacman-key --populate
+            pacman-key --add /ws/charly.gpg
+            KEYID=$(gpg --show-keys --with-colons /ws/charly.gpg 2>/dev/null | awk -F: "/^pub:/ {print \$5; exit}")
+            pacman-key --lsign-key "$KEYID"
+            printf "[charly]\nServer = file:///ws/repo/amd64\nSigLevel = Required\n" >> /etc/pacman.conf
+            pacman -Sy
+            pacman -S --noconfirm charly-minimal
+            test "$(charly version)" = "$VERSION" || { echo "version mismatch: $(charly version) != $VERSION"; exit 1; }
+            plugins=$(ls /usr/lib/charly/plugins/plugin-* | grep -v "\.providers$" | xargs -n1 basename | sort)
+            expected=$(printf "plugin-clean\nplugin-doctor\nplugin-settings")
+            test "$plugins" = "$expected" || { echo "unexpected minimal plugin set: $plugins"; exit 1; }
+            cd /tmp && charly doctor
+          '
 
       - name: Stage static files
         run: |

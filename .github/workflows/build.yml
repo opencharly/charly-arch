@@ -94,9 +94,12 @@ jobs:
             for arch in amd64 arm64; do
               cd /ws/repo/$arch
               for pkg in charly-*.pkg.tar.zst; do
+                # pacman downloads the signature as <pkg>.sig (dload.c appends
+                # ".sig" to the URL; there is no .asc fallback) — sign binary,
+                # not armored, or the install-test fails on the package sig.
                 gpg --batch --yes --pinentry-mode loopback \
                   --passphrase-file <(echo "$GPG_PASSPHRASE") \
-                  --detach-sign --armor "$pkg"
+                  --detach-sign "$pkg"
               done
               repo-add charly.db.tar.zst charly-*.pkg.tar.zst
               # pacman requests the db signature under the uncompressed name

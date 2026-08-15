@@ -121,7 +121,7 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          docker run --rm -v "${{ github.workspace }}:/ws:ro" archlinux:latest bash -c '
+          docker run --rm -e VERSION="$VERSION" -v "${{ github.workspace }}:/ws:ro" archlinux:latest bash -c '
             set -e
             pacman-key --init
             pacman-key --populate

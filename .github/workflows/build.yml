@@ -1,0 +1,141 @@
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'charly release CalVer to package (e.g. 2026.227.1026)'
+        required: true
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download charly release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p bin plugins
+          gh release download v${{ inputs.version }} --repo opencharly/charly \
+            --pattern 'charly-linux-*' --dir bin
+          gh release download v${{ inputs.version }} --repo opencharly/charly \
+            --pattern 'charly-plugins-linux-*.tar.gz' --dir .
+          gh release download v${{ inputs.version }} --repo opencharly/charly \
+            --pattern 'charly-candy-charly.yml' --dir .
+          for arch in amd64 arm64; do
+            mkdir -p plugins/$arch
+            tar -xzf charly-plugins-linux-$arch.tar.gz -C plugins/$arch
+          done
+
+      - name: Install charly + baked generate-packages plugin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          install -Dm755 bin/charly-amd64 /usr/local/bin/charly
+          install -Dm644 plugins/amd64/*.providers /usr/lib/charly/plugins/
+          install -Dm755 plugins/amd64/plugin-* /usr/lib/charly/plugins/
+          mkdir -p /tmp/plugin
+          gh release download --repo opencharly/plugin-generate-packages \
+            --pattern 'generate-packages-linux-amd64' \
+            --pattern 'generate-packages.providers' --dir /tmp/plugin
+          install -Dm755 /tmp/plugin/generate-packages-linux-amd64 /usr/lib/charly/plugins/generate-packages
+          install -Dm644 /tmp/plugin/generate-packages.providers /usr/lib/charly/plugins/generate-packages.providers
+          charly version
+
+      - name: Write the GPG signing key
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" > key.gpg
+          chmod 600 key.gpg
+
+      - name: Build packages
+        env:
+          CHARLY_PROJECT_DIR: ${{ github.workspace }}
+        run: |
+          for variant in default full minimal; do
+            for arch in amd64 arm64; do
+              charly generate-packages \
+                --candy charly-candy-charly.yml \
+                --binary bin/charly-$arch \
+                --plugins plugins/$arch \
+                --version ${{ inputs.version }} \
+                --arch $arch \
+                --variant $variant \
+                --formats archlinux \
+                --out repo/$arch
+            done
+          done
+
+      - name: Assemble + sign the pacman database
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/ws:rw" \
+            -e GPG_PASSPHRASE="${{ secrets.GPG_PASSPHRASE }}" \
+            archlinux:latest bash -c '
+            set -e
+            export GNUPGHOME=/tmp/gnupg
+            mkdir -p $GNUPGHOME && chmod 700 $GNUPGHOME
+            gpg --batch --import /ws/key.gpg
+            for arch in amd64 arm64; do
+              cd /ws/repo/$arch
+              for pkg in charly-*.pkg.tar.zst; do
+                gpg --batch --yes --pinentry-mode loopback \
+                  --passphrase-file <(echo "$GPG_PASSPHRASE") \
+                  --detach-sign --armor "$pkg"
+              done
+              repo-add charly.db.tar.zst charly-*.pkg.tar.zst
+              gpg --batch --yes --pinentry-mode loopback \
+                --passphrase-file <(echo "$GPG_PASSPHRASE") \
+                --detach-sign charly.db.tar.zst
+              gpg --batch --yes --pinentry-mode loopback \
+                --passphrase-file <(echo "$GPG_PASSPHRASE") \
+                --detach-sign charly.files.tar.zst
+            done
+          '
+
+      - name: Create stable copies
+        run: |
+          for arch in amd64 arm64; do
+            newest=$(ls repo/$arch/charly-*.pkg.tar.zst | grep -v minimal | grep -v full | sort -V | tail -1)
+            cp "$newest" repo/$arch/charly-$arch.pkg.tar.zst
+            cp "$newest.sig" repo/$arch/charly-$arch.pkg.tar.zst.sig 2>/dev/null || true
+            cp "$newest.asc" repo/$arch/charly-$arch.pkg.tar.zst.asc 2>/dev/null || true
+          done
+
+      - name: Install-test
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/ws:ro" archlinux:latest bash -c '
+            set -e
+            pacman-key --init
+            pacman-key --populate
+            pacman-key --add /ws/charly.gpg
+            KEYID=$(gpg --show-keys --with-colons /ws/charly.gpg 2>/dev/null | awk -F: "/^pub:/ {print \$5; exit}")
+            pacman-key --lsign-key "$KEYID"
+            printf "[charly]\nServer = file:///ws/repo/amd64\nSigLevel = Required\n" >> /etc/pacman.conf
+            pacman -Sy
+            pacman -S --noconfirm charly
+            test "$(charly version)" = "$VERSION" || { echo "version mismatch: $(charly version) != $VERSION"; exit 1; }
+            cd /tmp && charly doctor
+          '
+
+      - name: Deploy to Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: repo
+      - name: Deploy
+        uses: actions/deploy-pages@v4

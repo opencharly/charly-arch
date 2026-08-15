@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>charly-arch — Arch package repository for charly</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    pre { background: #f4f4f4; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+    code { background: #f4f4f4; padding: 0.1rem 0.3rem; border-radius: 4px; }
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid #ddd; padding: 0.4rem 0.8rem; text-align: left; }
+  </style>
+</head>
+<body>
+  <h1>charly-arch</h1>
+  <p>The Arch Linux package repository for <a href="https://github.com/opencharly/charly">charly</a> — the OpenCharly CLI and its composed toolchain, packaged as <code>.pkg.tar.zst</code> for <code>amd64</code> and <code>arm64</code>.</p>
+
+  <h2>Add the repository</h2>
+  <pre>pacman-key --add https://opencharly.github.io/charly-arch/charly.gpg
+pacman-key --lsign-key &lt;KEYID&gt;</pre>
+  <p>Append to <code>/etc/pacman.conf</code>:</p>
+  <pre>[charly]
+Server = https://opencharly.github.io/charly-arch/amd64
+SigLevel = Required</pre>
+  <pre>pacman -Sy
+pacman -S charly</pre>
+  <p>For <code>arm64</code> hosts, use <code>Server = https://opencharly.github.io/charly-arch/arm64</code>.</p>
+
+  <h2>Direct install</h2>
+  <table>
+    <tr><th>Architecture</th><th>Package</th></tr>
+    <tr><td>amd64</td><td><a href="amd64/charly-amd64.pkg.tar.zst">charly-amd64.pkg.tar.zst</a></td></tr>
+    <tr><td>arm64</td><td><a href="arm64/charly-arm64.pkg.tar.zst">charly-arm64.pkg.tar.zst</a></td></tr>
+  </table>
+
+  <h2>Variants</h2>
+  <table>
+    <tr><th>Package</th><th>Plugin set</th></tr>
+    <tr><td><code>charly</code></td><td>secrets, feature, vm, doctor, clean, settings, candy</td></tr>
+    <tr><td><code>charly-full</code></td><td>the default set + udev, preempt</td></tr>
+    <tr><td><code>charly-minimal</code></td><td>doctor, clean, settings</td></tr>
+  </table>
+
+  <h2>Repository key</h2>
+  <p><a href="charly.gpg">charly.gpg</a> — the GPG public key used to sign the packages and the pacman database.</p>
+</body>
+</html>

@@ -138,7 +138,7 @@ jobs:
             pacman -Sy
             pacman -S --noconfirm charly
             # charly v2026.250.0854+ ships systemd units + /etc/charly config
-            test -f /usr/lib/systemd/system/charly-mcp.service && test -f /usr/lib/systemd/user/charly-mcp.service
+            test -f /usr/lib/systemd/system/charly-mcp.service && test -f /usr/lib/systemd/user/charly-mcp.service || { echo "packaged charly-mcp units missing"; exit 1; }
             # non-autostarting: no post-install enable — is-enabled must be
             # 'disabled', or the no-systemd-manager error in the container
             if command -v systemctl >/dev/null 2>&1; then
@@ -148,13 +148,13 @@ jobs:
                 *) echo "charly-mcp unexpectedly enabled: $state"; exit 1 ;;
               esac
             else
-              grep -q '^WantedBy=' /usr/lib/systemd/system/charly-mcp.service
+              grep -q '^WantedBy=' /usr/lib/systemd/system/charly-mcp.service || { echo "system unit lacks WantedBy="; exit 1; }
             fi
             # ...and no enable marker (wants symlink) exists
-            test ! -e /etc/systemd/system/multi-user.target.wants/charly-mcp.service
+            test ! -e /etc/systemd/system/multi-user.target.wants/charly-mcp.service || { echo "unexpected enable marker present"; exit 1; }
             # the shipped system-wide config validates
-            test -f /etc/charly/charly.yml
-            charly box validate -C /etc/charly >/dev/null
+            test -f /etc/charly/charly.yml || { echo "/etc/charly/charly.yml missing"; exit 1; }
+            charly box validate -C /etc/charly >/dev/null || { echo "box validate failed"; exit 1; }
             # the MCP server starts on demand (no systemd in the container: run
             # it in the foreground and require it to stay up until the timeout)
             (cd /etc/charly && timeout 5 charly mcp serve --listen 127.0.0.1:18765 >/dev/null 2>&1)

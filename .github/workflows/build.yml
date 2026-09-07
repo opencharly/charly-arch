@@ -157,8 +157,12 @@ jobs:
             charly box validate -C /etc/charly >/dev/null || { echo "box validate failed"; exit 1; }
             # the MCP server starts on demand (no systemd in the container: run
             # it in the foreground and require it to stay up until the timeout)
+<<<<<<< HEAD
             (cd /etc/charly && timeout 5 charly mcp serve --listen 127.0.0.1:18765 >/dev/null 2>&1)
             serve=$?
+=======
+            (cd /etc/charly && timeout 5 charly mcp serve --listen 127.0.0.1:18765 >/dev/null 2>&1) || serve=$?
+>>>>>>> 58c1fc9 (ci: capture the mcp-serve status without tripping set -e in the install-test (the merged assertion aborted on timeout's expected 124))
             test "$serve" -eq 124 || { echo "charly mcp serve exited $serve (expected 124 = ran until timeout)"; exit 1; }
             cd /tmp && charly doctor
           '

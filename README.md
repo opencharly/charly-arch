@@ -42,7 +42,7 @@ Download the `.pkg.tar.zst` for your architecture and install it with `pacman -U
 | Package | Plugin set |
 |---|---|
 | `charly` | secrets, feature, vm, doctor, clean, settings, candy, mcp, review, pipeline (10) |
-| `charly-full` | secrets, udev, preempt, feature, vm, doctor, clean, settings, candy, mcp, review (11) |
+| `charly-full` | secrets, udev, preempt, feature, vm, doctor, clean, settings, candy, mcp, review, pipeline (12) |
 | `charly-minimal` | doctor, clean, settings (3) |
 
 ## Triggering a build

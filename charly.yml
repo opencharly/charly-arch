@@ -1,0 +1,147 @@
+# charly-arch — the Arch Linux package repository for charly.
+#
+# This project exists so this repo OWNS the R10 bed that proves its own
+# published artifact: check-arch-repo boots a disposable Arch cloud-image VM,
+# adds the published [charly] pacman repo (opencharly.github.io/charly-arch),
+# installs the packaged charly, and asserts the installed binary's version
+# equals the version the package manager recorded. The bed was relocated here
+# from opencharly/charly's charly.yml — the artifact owner is the repo that
+# publishes the repo.
+#
+# Nothing here builds an image: the VM template is a plain cloud_image, so the
+# project needs only defaults + the template + the bed.
+version: 2026.249.2125
+repo: github.com/opencharly/charly-arch
+defaults:
+    platform:
+        - linux/amd64
+    tag: auto
+    registry: ghcr.io/opencharly
+    build:
+        - pac
+    merge:
+        auto: false
+        max_mb: 128
+
+# arch-repo-vm — the disposable Arch cloud-image VM the repo-install bed boots.
+arch-repo-vm:
+    vm:
+        source:
+            kind: cloud_image
+            distro: arch
+            url: https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2
+            base_user: arch
+        backend: libvirt
+        disk_size: 20G
+        ram: 4G
+        cpu: 2
+        machine: q35
+        firmware: bios
+        ssh:
+            port_auto: true
+            key_source: generate
+        cloud_init:
+            timezone: UTC
+            package:
+                - sudo
+check-arch-repo:
+    vm:
+        from: arch-repo-vm
+        disposable: true
+        lifecycle: dev
+        description: >-
+            Proves the repo-based install from the published charly-arch pacman repo (opencharly.github.io/charly-arch) — the R10 acceptance for the nFPM packaging cutover's Arch leg. Boots the disposable Arch cloud-image VM (arch-repo-vm, ssh.port_auto so it never collides with another bed's fixed port), imports + locally signs the charly GPG key, adds the [charly] repo, `pacman -S charly`, asserts the PACKAGED /usr/bin/charly reports the same version the package manager recorded for the installed package, then removes charly and installs the `charly-minimal` variant, asserting its minimal plugin set dispatches.
+        install_opts:
+            allow_repo_changes: true
+            allow_root_tasks: true
+        plan:
+            - check: the charly GPG key is imported and locally signed
+              id: arch-repo-key-imported
+              timeout: 10m
+              exit_status: 0
+              context:
+                - runtime
+              command: |
+                sudo pacman-key --init &&
+                sudo pacman-key --populate archlinux &&
+                curl -fsSL -o /tmp/charly.gpg https://opencharly.github.io/charly-arch/charly.gpg &&
+                sudo pacman-key --add /tmp/charly.gpg &&
+                KEYID=$(gpg --with-colons --import-options show-only --import /tmp/charly.gpg | awk -F: '/^pub/{print $5}') &&
+                test -n "$KEYID" &&
+                sudo pacman-key --lsign-key "$KEYID"
+            - check: the [charly] repo is added to pacman.conf
+              id: arch-repo-added
+              exit_status: 0
+              context:
+                - runtime
+              command: |
+                printf '[charly]\nServer = https://opencharly.github.io/charly-arch/amd64\nSigLevel = Required\n' | sudo tee -a /etc/pacman.conf >/dev/null &&
+                grep -q '^\[charly\]$' /etc/pacman.conf &&
+                grep -q '^Server = https://opencharly.github.io/charly-arch/amd64$' /etc/pacman.conf
+            - check: pacman -Sy refreshes the charly repo db
+              id: arch-pacman-sy
+              timeout: 10m
+              exit_status: 0
+              context:
+                - runtime
+              # -Sy alone cannot prove the charly repo resolved (it warns and
+              # carries on); -Si can only succeed from the charly sync DB.
+              command: |
+                sudo pacman -Sy --noconfirm &&
+                pacman -Si charly >/dev/null
+            - check: pacman -S charly installs the package
+              id: arch-charly-installed
+              timeout: 10m
+              exit_status: 0
+              context:
+                - runtime
+              command: |
+                sudo pacman -S --noconfirm charly &&
+                pacman -Q charly
+            - check: charly version equals the repo's published CalVer
+              id: arch-charly-version
+              exit_status: 0
+              stdout:
+                - contains: ARCH-REPO-VERSION-OK
+              context:
+                - runtime
+              command: |
+                installed="$(/usr/bin/charly version)" &&
+                packaged="$(pacman -Q charly | awk '{print $2}' | cut -d- -f1)" &&
+                echo "installed=[$installed] packaged=[$packaged]" &&
+                test -n "$installed" && test -n "$packaged" &&
+                test "$installed" = "$packaged" &&
+                echo ARCH-REPO-VERSION-OK
+            - check: the welded command plugins dispatch project-less from /tmp
+              id: arch-welded-command-project-less
+              exit_status: 0
+              stdout:
+                - contains: ARCH-WELDED-CMD-OK
+              context:
+                - runtime
+              command: |
+                cd /tmp &&
+                charly doctor 2>/dev/null | grep -q 'Summary:' &&
+                echo ARCH-WELDED-CMD-OK
+            - check: charly-minimal installs after removing charly (both provide /usr/bin/charly)
+              id: arch-charly-minimal-installed
+              timeout: 10m
+              exit_status: 0
+              context:
+                - runtime
+              command: |
+                sudo pacman -R --noconfirm charly &&
+                sudo pacman -S --noconfirm charly-minimal
+            - check: the minimal variant ships only the doctor/clean/settings plugin set
+              id: arch-minimal-plugin-set
+              exit_status: 0
+              stdout:
+                - contains: ARCH-MINIMAL-PLUGIN-SET-OK
+              context:
+                - runtime
+              command: |
+                test -f /usr/lib/charly/plugins/plugin-doctor.providers &&
+                test -f /usr/lib/charly/plugins/plugin-clean.providers &&
+                test -f /usr/lib/charly/plugins/plugin-settings.providers &&
+                test ! -f /usr/lib/charly/plugins/plugin-vm.providers &&
+                echo ARCH-MINIMAL-PLUGIN-SET-OK

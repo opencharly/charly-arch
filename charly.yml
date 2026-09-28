@@ -10,7 +10,6 @@
 #
 # Nothing here builds an image: the VM template is a plain cloud_image, so the
 # project needs only defaults + the template + the bed.
-version: 2026.249.2125
 repo: github.com/opencharly/charly-arch
 defaults:
     platform:

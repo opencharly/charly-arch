@@ -12,9 +12,14 @@ installed binary's version equals the version the package manager recorded.
 ## Add the repository
 
 ```sh
-pacman-key --add https://opencharly.github.io/charly-arch/charly.gpg
-pacman-key --lsign-key <KEYID>
+curl -fsSL -o /tmp/charly.gpg https://opencharly.github.io/charly-arch/charly.gpg
+pacman-key --add /tmp/charly.gpg
+pacman-key --lsign-key 978DFF11A951A830F7ADA2D4062B073E9D1BAE2E
 ```
+
+`pacman-key --add` takes a key **file**, not a URL. The fingerprint is that of the published
+`charly.gpg` (`OpenCharly Package Signing <atrawog@opencharly.ai>`); the `check-arch-repo` bed
+derives the same key from the downloaded file.
 
 Append to `/etc/pacman.conf`:
 

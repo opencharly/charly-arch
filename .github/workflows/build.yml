@@ -1,15 +1,24 @@
 name: build
 
 on:
+  # DERIVED, not hand-typed: the version to package is the newest charly RELEASE,
+  # and the daily schedule is what keeps this repo from silently lagging the
+  # toolchain (it lagged from 2026-10-06 to 2026-11-22, so every image that
+  # installed `charly` from here carried packages built by a pre-sdk#397 sdk whose
+  # variant family still declared a mutual Replaces — `pacman -Syu` then picked
+  # both charly-full and charly-minimal and refused: opencharly/layer-charly#23).
+  # The inputs stay for a deliberate backfill; leaving them empty means "the newest
+  # release", which is what the schedule uses.
   workflow_dispatch:
     inputs:
       version:
-        description: 'charly release CalVer to package (e.g. 2026.227.1026)'
-        required: true
+        description: 'charly release CalVer to package; EMPTY = the newest charly release'
+        required: false
       charly_lib_version:
-        description: 'charly-lib release TAG (pinned) to fetch the shared host from'
-        required: true
-        default: 'v2026.256.1131'
+        description: 'charly-lib release TAG to fetch the shared host from; EMPTY = the newest'
+        required: false
+  schedule:
+    - cron: '17 5 * * *'
 
 permissions:
   contents: write
@@ -21,7 +30,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+      lib: ${{ steps.pick.outputs.lib }}
+      skip: ${{ steps.pick.outputs.skip }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WANT_VERSION: ${{ inputs.version }}
+          WANT_LIB: ${{ inputs.charly_lib_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${WANT_VERSION:-}" ]; then
+            version="$WANT_VERSION"
+          else
+            version="$(gh release list --repo opencharly/charly --limit 1 --json tagName --jq '.[0].tagName' | sed 's/^v//')"
+          fi
+          if [ -n "${WANT_LIB:-}" ]; then
+            lib="$WANT_LIB"
+          else
+            lib="$(gh release list --repo opencharly/charly-lib --limit 1 --json tagName --jq '.[0].tagName')"
+          fi
+          # Idempotent: nothing to do when the published repo already serves this
+          # release. The check reads the SERVED database, so a run that published
+          # but crashed before recording state still converges.
+          skip=false
+          if curl -fsSL https://opencharly.github.io/charly-arch/amd64/charly.db.tar.zst \
+               | zstd -dc | tar -t 2>/dev/null | grep -qx "charly-${version}-1/"; then
+            skip=true
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "lib=$lib" >> "$GITHUB_OUTPUT"
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          echo "resolved charly v$version, charly-lib $lib, already published: $skip"
+
   build:
+    needs: resolve
+    if: needs.resolve.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -31,12 +79,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p bin plugins
-          gh release download v${{ inputs.version }} --repo opencharly/charly \
+          gh release download v${{ needs.resolve.outputs.version }} --repo opencharly/charly \
             --pattern 'charly-linux-*' --dir bin
           for f in bin/charly-linux-*; do
             mv "$f" "bin/charly-${f#bin/charly-linux-}"
           done
-          gh release download v${{ inputs.version }} --repo opencharly/charly \
+          gh release download v${{ needs.resolve.outputs.version }} --repo opencharly/charly \
             --pattern 'charly-candy-charly.yml' --dir .
           # The welded plugins no longer ship as per-plugin binaries: the shared
           # charly-lib host serves them all (opencharly/sdk#258 packagekit hard
@@ -47,7 +95,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p plugins/amd64 plugins/arm64 .charly-lib
-          gh release download "${{ inputs.charly_lib_version }}" --repo opencharly/charly-lib \
+          gh release download "${{ needs.resolve.outputs.lib }}" --repo opencharly/charly-lib \
             --pattern 'charly-lib-linux-amd64' \
             --pattern 'charly-lib-linux-arm64' \
             --pattern '*.providers' --dir .charly-lib --clobber
@@ -101,7 +149,7 @@ jobs:
                 --candy charly-candy-charly.yml \
                 --binary bin/charly-$arch \
                 --plugins plugins/$arch \
-                --version ${{ inputs.version }} \
+                --version ${{ needs.resolve.outputs.version }} \
                 --arch $arch \
                 --variant $variant \
                 --formats archlinux \
@@ -154,7 +202,7 @@ jobs:
 
       - name: Install-test
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           docker run --rm -e VERSION="$VERSION" -v "${{ github.workspace }}:/ws:ro" archlinux:latest bash -c '
             set -e

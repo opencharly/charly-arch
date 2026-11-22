@@ -40,8 +40,8 @@ jobs:
       - id: pick
         env:
           GH_TOKEN: ${{ github.token }}
-          WANT_VERSION: ${{ needs.resolve.outputs.version }}
-          WANT_LIB: ${{ needs.resolve.outputs.lib }}
+          WANT_VERSION: ${{ inputs.version }}
+          WANT_LIB: ${{ inputs.charly_lib_version }}
         run: |
           set -euo pipefail
           if [ -n "${WANT_VERSION:-}" ]; then
@@ -59,7 +59,7 @@ jobs:
           # but crashed before recording state still converges.
           skip=false
           if curl -fsSL https://opencharly.github.io/charly-arch/amd64/charly.db.tar.zst \
-               | zstd -dc | tar -t 2>/dev/null | grep -qx "charly-${version}-1"; then
+               | zstd -dc | tar -t 2>/dev/null | grep -qx "charly-${version}-1/"; then
             skip=true
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"

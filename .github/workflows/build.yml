@@ -78,7 +78,10 @@ jobs:
           # explicitly; it is how layer-charly#23's corrected metadata is published.
           release=""
           if [ "${FORCE:-false}" = "true" ]; then
-            release="${PKGREL:?force=true needs an explicit pkgrel}"
+            case "${PKGREL:-}" in
+              ''|*[!0-9]*) echo "force=true needs a package release of digits only (got '${PKGREL:-}')" >&2; exit 1 ;;
+            esac
+            release="$PKGREL"
             skip=false
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -162,6 +165,9 @@ jobs:
       - name: Build packages
         env:
           CHARLY_PROJECT_DIR: ${{ github.workspace }}
+          # The pkgrel is DATA: it reaches the script through the environment, is checked for
+          # digits in `resolve`, and is quoted here — never interpolated into the script text.
+          RELEASE: ${{ needs.resolve.outputs.release }}
         run: |
           for variant in default full minimal; do
             for arch in amd64 arm64; do
@@ -170,7 +176,7 @@ jobs:
                 --binary bin/charly-$arch \
                 --plugins plugins/$arch \
                 --version ${{ needs.resolve.outputs.version }} \
-                ${{ needs.resolve.outputs.release != '' && format('--release {0}', needs.resolve.outputs.release) || '' }} \
+                ${RELEASE:+--release "$RELEASE"} \
                 --arch $arch \
                 --variant $variant \
                 --formats archlinux \

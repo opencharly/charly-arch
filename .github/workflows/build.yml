@@ -17,6 +17,13 @@ on:
       charly_lib_version:
         description: 'charly-lib release TAG to fetch the shared host from; EMPTY = the newest'
         required: false
+      force:
+        description: 'republish an ALREADY-published version as a new pkgrel (a packaging repair, e.g. layer-charly#23)'
+        required: false
+        default: 'false'
+      pkgrel:
+        description: 'the pkgrel the force republish produces; required when force is true'
+        required: false
   schedule:
     - cron: '17 5 * * *'
 
@@ -36,12 +43,15 @@ jobs:
       version: ${{ steps.pick.outputs.version }}
       lib: ${{ steps.pick.outputs.lib }}
       skip: ${{ steps.pick.outputs.skip }}
+      release: ${{ steps.pick.outputs.release }}
     steps:
       - id: pick
         env:
           GH_TOKEN: ${{ github.token }}
           WANT_VERSION: ${{ inputs.version }}
           WANT_LIB: ${{ inputs.charly_lib_version }}
+          FORCE: ${{ inputs.force }}
+          PKGREL: ${{ inputs.pkgrel }}
         run: |
           set -euo pipefail
           if [ -n "${WANT_VERSION:-}" ]; then
@@ -62,9 +72,19 @@ jobs:
                | zstd -dc | tar -t 2>/dev/null | grep -qx "charly-${version}-1/"; then
             skip=true
           fi
+          # A REPAIR of an already-published version is a new pkgrel, never a rewritten -1
+          # (opencharly/sdk#618/#620): the artifact changed while the upstream version did not,
+          # and a client that already holds -1 would never see it. The force input says so
+          # explicitly; it is how layer-charly#23's corrected metadata is published.
+          release=""
+          if [ "${FORCE:-false}" = "true" ]; then
+            release="${PKGREL:?force=true needs an explicit pkgrel}"
+            skip=false
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "lib=$lib" >> "$GITHUB_OUTPUT"
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
           echo "resolved charly v$version, charly-lib $lib, already published: $skip"
 
   build:
@@ -150,6 +170,7 @@ jobs:
                 --binary bin/charly-$arch \
                 --plugins plugins/$arch \
                 --version ${{ needs.resolve.outputs.version }} \
+                ${{ needs.resolve.outputs.release != '' && format('--release {0}', needs.resolve.outputs.release) || '' }} \
                 --arch $arch \
                 --variant $variant \
                 --formats archlinux \
